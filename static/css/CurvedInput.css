@@ -1,0 +1,95 @@
+.curved-input {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0; /* avoid extra baseline gap under the inline svg */
+}
+
+.curved-input__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: text;
+  overflow: visible; /* let the drop-shadow filter breathe */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Focus ring drawn just outside the pill's stroke. Hidden by default,
+   faded in only while the hidden input has focus. */
+.curved-input__ring {
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.curved-input--focused .curved-input__ring {
+  opacity: 0.35;
+}
+
+.curved-input__button {
+  cursor: pointer;
+  outline: none;
+}
+
+.curved-input__button-bg {
+  transition: filter 0.15s ease, transform 0.15s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.curved-input__button:hover .curved-input__button-bg {
+  filter: brightness(1.08);
+}
+
+.curved-input__button:active .curved-input__button-bg {
+  filter: brightness(0.92);
+  transform: scale(0.97);
+}
+
+/* Keyboard-only focus indicator on the button group (svg <g> with
+   role="button" / tabIndex=0), since it has no native focus ring. */
+.curved-input__button:focus-visible .curved-input__button-bg {
+  filter: brightness(1.12);
+}
+
+/*
+ * The real <input> is visually invisible and stacked on top of the SVG so
+ * screen readers, autofill, and the mobile keyboard all treat this as a
+ * normal text field. It MUST NOT intercept pointer events: clicks are
+ * handled by CurvedInput's own onClick (handleSurfaceClick), which computes
+ * the nearest character position along the arc and then calls
+ * input.focus() + input.setSelectionRange() manually. If this input were
+ * allowed to receive pointer events, it would sit on top of the SVG in
+ * paint order and swallow every click before that handler ever ran —
+ * caret placement would silently stop working while typing still "worked"
+ * (since focus/typing don't require pointer-events), making this an easy
+ * bug to miss in manual testing.
+ *
+ * pointer-events: none does not remove the input from the tab order, so
+ * keyboard navigation and screen readers are unaffected.
+ */
+.curved-input__field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
+  pointer-events: none;
+  -webkit-text-fill-color: transparent;
+}
+
+.curved-input__field:focus {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .curved-input__ring,
+  .curved-input__button-bg {
+    transition: none;
+  }
+}

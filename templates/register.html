@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .distortion-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        
+        .login-container {
+            position: relative;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 2.5rem;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+            width: 100%;
+            max-width: 400px;
+            margin: auto;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 10;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .login-header h1 {
+            color: #333;
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .login-form .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .login-form label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #555;
+            font-weight: 600;
+        }
+        
+        .login-form input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        
+        .login-form input:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        
+        .login-form button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .login-form button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .login-footer {
+            text-align: center;
+            margin-top: 1.5rem;
+            color: #666;
+        }
+        
+        .login-footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        .login-footer a:hover {
+            text-decoration: underline;
+        }
+
+        .login-flash {
+            list-style: none;
+            margin-bottom: 1.25rem;
+            padding: 0.75rem 1rem;
+            background: rgba(220, 38, 38, 0.12);
+            border: 1px solid rgba(220, 38, 38, 0.35);
+            border-radius: 8px;
+            color: #7f1d1d;
+            font-size: 0.9rem;
+        }
+        .login-flash li + li { margin-top: 0.4rem; }
+    </style>
+</head>
+<body>
+    <div class="distortion-container" id="distortion-container"></div>
+    
+    <div class="login-container">
+        <div class="login-header">
+            <h1>Create Your Account</h1>
+            <p>Sign up to start generating reports</p>
+        </div>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <ul class="login-flash">
+              {% for m in messages %}<li>{{ m }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <form class="login-form" method="POST" action="{{ url_for('register') }}">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" placeholder="Choose a username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" placeholder="Enter your email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Choose a password" required minlength="8">
+            </div>
+            <button type="submit">Create Account</button>
+        </form>
+        <div class="login-footer">
+            <p>Already have an account? <a href="{{ url_for('login') }}">Sign in</a></p>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('distortion-container');
+            const scene = new THREE.Scene();
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setClearColor(0x000000, 0);
+            container.appendChild(renderer.domElement);
+            
+            const camera = new THREE.OrthographicCamera(0, 0, 0, 0, -1000, 1000);
+            camera.position.z = 2;
+            
+            const uniforms = {
+                time: { value: 0 },
+                resolution: { value: new THREE.Vector4() },
+                uTexture: { value: null },
+                uDataTexture: { value: null }
+            };
+            
+            // Generate a beautiful gradient texture using a canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            
+            // Base background gradient
+            const baseGrad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            baseGrad.addColorStop(0, '#0f172a'); // Deep slate
+            baseGrad.addColorStop(1, '#1e1b4b'); // Deep indigo
+            ctx.fillStyle = baseGrad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Blob 1: Purple
+            const radial1 = ctx.createRadialGradient(200, 200, 50, 200, 200, 600);
+            radial1.addColorStop(0, 'rgba(124, 58, 237, 0.65)'); // Violet-600
+            radial1.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = radial1;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Blob 2: Pink
+            const radial2 = ctx.createRadialGradient(800, 800, 50, 800, 800, 600);
+            radial2.addColorStop(0, 'rgba(219, 39, 119, 0.55)'); // Pink-600
+            radial2.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = radial2;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Blob 3: Cyan
+            const radial3 = ctx.createRadialGradient(800, 200, 50, 800, 200, 550);
+            radial3.addColorStop(0, 'rgba(6, 182, 212, 0.45)'); // Cyan-500
+            radial3.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = radial3;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            texture.wrapS = THREE.ClampToEdgeWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            uniforms.uTexture.value = texture;
+            
+            const size = 10;
+            const data = new Float32Array(4 * size * size);
+            for (let i = 0; i < size * size; i++) {
+                data[i * 4] = Math.random() * 255 - 125;
+                data[i * 4 + 1] = Math.random() * 255 - 125;
+            }
+            
+            const dataTexture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
+            dataTexture.needsUpdate = true;
+            uniforms.uDataTexture.value = dataTexture;
+            
+            const vertexShader = `uniform float time; varying vec2 vUv; varying vec3 vPosition; void main() { vUv = uv; vPosition = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+            
+            const fragmentShader = `uniform sampler2D uDataTexture; uniform sampler2D uTexture; uniform vec4 resolution; varying vec2 vUv; void main() { vec2 uv = vUv; vec4 offset = texture2D(uDataTexture, vUv); gl_FragColor = texture2D(uTexture, uv - 0.02 * offset.rg); }`;
+            
+            const material = new THREE.ShaderMaterial({
+                side: THREE.DoubleSide,
+                uniforms,
+                vertexShader,
+                fragmentShader,
+                transparent: true
+            });
+            
+            const geometry = new THREE.PlaneGeometry(1, 1, size - 1, size - 1);
+            const plane = new THREE.Mesh(geometry, material);
+            scene.add(plane);
+            
+            const handleResize = () => {
+                const rect = container.getBoundingClientRect();
+                const width = rect.width;
+                const height = rect.height;
+                
+                if (width === 0 || height === 0) return;
+                
+                const containerAspect = width / height;
+                renderer.setSize(width, height);
+                
+                if (plane) {
+                    plane.scale.set(containerAspect, 1, 1);
+                }
+                
+                const frustumHeight = 1;
+                const frustumWidth = frustumHeight * containerAspect;
+                camera.left = -frustumWidth / 2;
+                camera.right = frustumWidth / 2;
+                camera.top = frustumHeight / 2;
+                camera.bottom = -frustumHeight / 2;
+                camera.updateProjectionMatrix();
+                
+                uniforms.resolution.value.set(width, height, 1, 1);
+            };
+            
+            window.addEventListener('resize', handleResize);
+            handleResize();
+            
+            const mouseState = { x: 0, y: 0, prevX: 0, prevY: 0, vX: 0, vY: 0 };
+            
+            container.addEventListener('mousemove', (e) => {
+                const rect = container.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width;
+                const y = 1 - (e.clientY - rect.top) / rect.height;
+                
+                mouseState.vX = x - mouseState.prevX;
+                mouseState.vY = y - mouseState.prevY;
+                Object.assign(mouseState, { x, y, prevX: x, prevY: y });
+            });
+            
+            container.addEventListener('mouseleave', () => {
+                if (dataTexture) {
+                    dataTexture.needsUpdate = true;
+                }
+                Object.assign(mouseState, { x: 0, y: 0, prevX: 0, prevY: 0, vX: 0, vY: 0 });
+            });
+            
+            const animate = () => {
+                requestAnimationFrame(animate);
+                
+                uniforms.time.value += 0.05;
+                
+                const data = dataTexture.image.data;
+                for (let i = 0; i < size * size; i++) {
+                    data[i * 4] *= 0.9;
+                    data[i * 4 + 1] *= 0.9;
+                }
+                
+                const gridMouseX = size * mouseState.x;
+                const gridMouseY = size * mouseState.y;
+                const maxDist = size * 0.1;
+                
+                for (let i = 0; i < size; i++) {
+                    for (let j = 0; j < size; j++) {
+                        const distSq = Math.pow(gridMouseX - i, 2) + Math.pow(gridMouseY - j, 2);
+                        if (distSq < maxDist * maxDist) {
+                            const index = 4 * (i + size * j);
+                            const power = Math.min(maxDist / Math.sqrt(distSq), 10);
+                            data[index] += 0.15 * 100 * mouseState.vX * power;
+                            data[index + 1] -= 0.15 * 100 * mouseState.vY * power;
+                        }
+                    }
+                }
+                
+                dataTexture.needsUpdate = true;
+                renderer.render(scene, camera);
+            };
+            
+            animate();
+        });
+    </script>
+</body>
+</html>
