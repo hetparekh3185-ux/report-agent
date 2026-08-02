@@ -22,6 +22,7 @@ ENV/
 
 # Database certificates
 *.pem
+!ca.pem
 
 # Flask
 instance/

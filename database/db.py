@@ -7,6 +7,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 load_dotenv()  # don't rely on the importer having loaded .env first
 
+# ca.pem lives at the project root; db.py is one level down in database/.
+# Resolve an absolute path so it works regardless of the process working
+# directory (Render does NOT run the app from the repo root in all setups).
+_CA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ca.pem")
+
 DB_CONFIG = {
     "host": os.getenv("MYSQL_HOST") or os.getenv("DB_HOST", "localhost"),
     "port": int(os.getenv("MYSQL_PORT") or os.getenv("DB_PORT", 3306)),
@@ -15,7 +20,7 @@ DB_CONFIG = {
     "database": os.getenv("MYSQL_DATABASE") or os.getenv("DB_NAME", "report_agent"),
     "cursorclass": pymysql.cursors.DictCursor,
     "autocommit": False,
-    "ssl": {"ca": os.path.join(os.path.dirname(__file__), "..", "ca.pem")},
+    "ssl": {"ca": _CA_PATH},
 }
 
 
