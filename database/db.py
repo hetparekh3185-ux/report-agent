@@ -136,9 +136,10 @@ def user_owns_file(user_id: int, filename: str) -> bool:
 
 def get_reports_for_user(user_id: int):
     """
-    Groups the per-file rows back into one entry per (topic, created_at)
-    so the dashboard can show one line per generation with both download
-    links, instead of two separate list items for the same report.
+    Groups the per-file rows back into one entry per generation.
+    Uses the report_id (extracted from filename) as the key so that
+    docx+pdf pairs from the same generation are correctly merged,
+    even if two generations share the same topic and timestamp.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -151,7 +152,14 @@ def get_reports_for_user(user_id: int):
     grouped = {}
     ordered_keys = []
     for row in rows:
-        key = (row["topic"], row["created_at"])
+        # Filenames are like: {safe_topic}_{report_id}.docx or .pdf
+        # Extract report_id as the part after the last '_' and before '.'
+        fname = row["report_name"] or ""
+        report_id = fname.rsplit("_", 1)[-1].split(".", 1)[0] if fname else None
+
+        # If we couldn't extract an ID (shouldn't happen), fall back to old key
+        key = report_id or (row["topic"], row["created_at"])
+
         if key not in grouped:
             grouped[key] = {
                 "topic": row["topic"],
@@ -160,6 +168,7 @@ def get_reports_for_user(user_id: int):
                 "pdf_name": None,
             }
             ordered_keys.append(key)
+
         if row["file_type"] == "docx":
             grouped[key]["report_name"] = row["report_name"]
         elif row["file_type"] == "pdf":
