@@ -1,3 +1,5 @@
+from xml.sax.saxutils import escape as _xml_escape
+
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.units import inch
 from reportlab.lib import colors
@@ -10,11 +12,16 @@ from utils.content_blocks import parse_blocks, BOLD_PATTERN
 
 def _convert_markdown_bold(text: str) -> str:
     """
-    ReportLab's Paragraph understands a small set of HTML-like tags
-    natively (including <b>), but NOT markdown **bold** syntax — passed
-    through as-is, the raw asterisks show up literally in the PDF.
+    ReportLab's Paragraph parses its input as a restricted XML/HTML
+    subset — a literal '<', '>' or '&' anywhere in the report text
+    (URLs with query strings, "<script>" mentions, "5 < 10", etc.)
+    makes it throw a parse error instead of just rendering the
+    character. Escape those first, THEN convert **bold** markers to
+    <b> tags — asterisks aren't touched by XML-escaping, so the
+    markdown markers are still there to match afterward.
     """
-    return BOLD_PATTERN.sub(r"<b>\1</b>", text)
+    escaped = _xml_escape(text)
+    return BOLD_PATTERN.sub(r"<b>\1</b>", escaped)
 
 
 def _build_table_flowable(rows: list, cell_style) -> Table:
@@ -64,17 +71,25 @@ def build_pdf(topic: str, body_text: str, output_path: str) -> str:
     story = [Paragraph(_convert_markdown_bold(topic), styles["Title"]), Spacer(1, 16)]
 
     for block in parse_blocks(body_text):
-        if block["type"] == "table":
-            story.append(_build_table_flowable(block["rows"], cell_style))
-            story.append(Spacer(1, 10))
-            continue
+        try:
+            if block["type"] == "table":
+                story.append(_build_table_flowable(block["rows"], cell_style))
+                story.append(Spacer(1, 10))
+                continue
 
-        if block["type"] == "heading":
-            style_name = {1: "Heading1", 2: "Heading2", 3: "Heading3"}[block["level"]]
-            story.append(Paragraph(_convert_markdown_bold(block["text"]), styles[style_name]))
-        else:
-            story.append(Paragraph(_convert_markdown_bold(block["text"]), body_style))
-        story.append(Spacer(1, 6))
+            if block["type"] == "heading":
+                style_name = {1: "Heading1", 2: "Heading2", 3: "Heading3"}[block["level"]]
+                story.append(Paragraph(_convert_markdown_bold(block["text"]), styles[style_name]))
+            else:
+                story.append(Paragraph(_convert_markdown_bold(block["text"]), body_style))
+            story.append(Spacer(1, 6))
+        except Exception:
+            # A single malformed block (e.g. leftover markup ReportLab's
+            # mini-parser still chokes on) shouldn't kill the whole PDF —
+            # fall back to a plain, fully-escaped paragraph for that block.
+            safe_text = _xml_escape(block.get("text", ""))
+            story.append(Paragraph(safe_text, body_style))
+            story.append(Spacer(1, 6))
 
     doc.build(story)
     return output_path

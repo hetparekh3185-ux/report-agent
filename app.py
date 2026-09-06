@@ -137,13 +137,20 @@ def generate():
     safe_topic = slugify(topic)
     docx_filename = f"{safe_topic}_{report_id}.docx"
     docx_path = os.path.join(GENERATED_REPORTS_DIR, docx_filename)
-    word_generator.build_docx(topic=topic, body_text=report_text, output_path=docx_path)
 
-    pdf_filename = None
-    if want_pdf:
-        pdf_filename = f"{safe_topic}_{report_id}.pdf"
-        pdf_path = os.path.join(GENERATED_REPORTS_DIR, pdf_filename)
-        pdf_generator.build_pdf(topic=topic, body_text=report_text, output_path=pdf_path)
+    try:
+        word_generator.build_docx(topic=topic, body_text=report_text, output_path=docx_path)
+
+        pdf_filename = None
+        if want_pdf:
+            pdf_filename = f"{safe_topic}_{report_id}.pdf"
+            pdf_path = os.path.join(GENERATED_REPORTS_DIR, pdf_filename)
+            pdf_generator.build_pdf(topic=topic, body_text=report_text, output_path=pdf_path)
+    except Exception as exc:
+        # Content generation succeeded but document assembly failed —
+        # surface this as JSON, not Flask's HTML debug page, so the
+        # frontend's fetch().json() doesn't choke on "<html>...".
+        return jsonify({"error": f"Failed to build document: {exc}"}), 502
 
     db.save_report_files(
         user_id=session["user_id"],
