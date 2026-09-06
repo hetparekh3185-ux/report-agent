@@ -11,9 +11,12 @@ from utils.helpers import slugify
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
 GENERATED_REPORTS_DIR = os.path.join(os.path.dirname(__file__), "generated_reports")
 os.makedirs(GENERATED_REPORTS_DIR, exist_ok=True)
+
+_db_checked = False
 
 
 def login_required(view):
@@ -31,7 +34,29 @@ def login_required(view):
 
 @app.before_request
 def ensure_db():
-    db.init_db()
+    # Only verify the schema once per process, not on every single
+    # request — this was adding two extra DB round-trips (and an extra
+    # chance to fail) right before every report generation/save.
+    global _db_checked
+    if not _db_checked:
+        db.init_db()
+        _db_checked = True
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    from werkzeug.exceptions import HTTPException
+
+    if isinstance(exc, HTTPException):
+        return exc
+
+    # Every route here either renders a template or is called via fetch()
+    # expecting JSON back. Returning Flask/Werkzeug's HTML debug or 500
+    # page for an uncaught error is what produced the frontend's
+    # "Unexpected token '<', <html>..." — it tried to JSON.parse() an
+    # HTML page. Return JSON instead so failures are always readable.
+    app.logger.exception("Unhandled exception")
+    return jsonify({"error": f"Unexpected server error: {exc}"}), 500
 
 
 # ---------------------------------------------------------------- routes ---
@@ -152,12 +177,19 @@ def generate():
         # frontend's fetch().json() doesn't choke on "<html>...".
         return jsonify({"error": f"Failed to build document: {exc}"}), 502
 
-    db.save_report_files(
-        user_id=session["user_id"],
-        topic=topic,
-        docx={"report_name": docx_filename, "file_path": docx_path},
-        pdf={"report_name": pdf_filename, "file_path": pdf_path} if want_pdf else None,
-    )
+    try:
+        db.save_report_files(
+            user_id=session["user_id"],
+            topic=topic,
+            docx={"report_name": docx_filename, "file_path": docx_path},
+            pdf={"report_name": pdf_filename, "file_path": pdf_path} if want_pdf else None,
+        )
+    except Exception as exc:
+        # Files were built successfully but the DB write failed (e.g. a
+        # SQLite "database is locked" error from a concurrent request) —
+        # report this as JSON instead of letting it crash into Flask's
+        # HTML debug page.
+        return jsonify({"error": f"Report generated but failed to save to history: {exc}"}), 502
 
     return jsonify(
         {
@@ -197,4 +229,4 @@ def history():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=app.config["DEBUG"], port=5000)
