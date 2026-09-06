@@ -36,7 +36,7 @@ def fetch_content(client, topic, num_pages):
     
     try:
         response = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
+            model='openai/gpt-oss-120b',
             messages=[
                 {'role': 'system', 'content': 'You are a professional report writer. Create well-structured, informative reports.'},
                 {'role': 'user', 'content': prompt}

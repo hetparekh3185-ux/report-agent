@@ -1,0 +1,13 @@
+{
+  "theme": "obsidian",
+  "cssTheme": "",
+  "baseFontSize": 16,
+  "monospaceFontFamily": "'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Monaco, Consolas, monospace",
+  "textFontFamily": "",
+  "interfaceFontFamily": "",
+  "enabledCssSnippets": [],
+  "nativeMenus": true,
+  "showRibbon": true,
+  "translucency": false,
+  "accentColor": ""
+}

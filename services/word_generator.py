@@ -1,10 +1,9 @@
-import re
 from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
-BOLD_PATTERN = re.compile(r"\*\*(.+?)\*\*")
+from utils.content_blocks import parse_blocks, BOLD_PATTERN
 
 
 def _force_font(rpr_owner, font_name: str) -> None:
@@ -82,31 +81,46 @@ def _add_text_with_bold_markers(paragraph, text: str, font_name: str, size_pt: i
         _apply_run_font(run, font_name, size_pt, bold=base_bold)
 
 
+def _add_table(doc: Document, rows: list) -> None:
+    if not rows:
+        return
+    ncols = max(len(r) for r in rows)
+    table = doc.add_table(rows=len(rows), cols=ncols)
+    try:
+        table.style = "Light Grid Accent 1"
+    except KeyError:
+        # Style not available in a bare/default template — fall back to
+        # the always-present basic grid rather than raising.
+        table.style = "Table Grid"
+
+    for r_idx, row_cells in enumerate(rows):
+        for c_idx in range(ncols):
+            text = row_cells[c_idx] if c_idx < len(row_cells) else ""
+            cell = table.cell(r_idx, c_idx)
+            cell.text = ""
+            para = cell.paragraphs[0]
+            _add_text_with_bold_markers(para, text, "Times New Roman", 10, base_bold=(r_idx == 0))
+
+    doc.add_paragraph()  # spacing after the table
+
+
 def parse_and_format_content(doc: Document, content: str) -> None:
-    for raw_line in content.split("\n"):
-        line = raw_line.strip()
-        if not line:
+    for block in parse_blocks(content):
+        if block["type"] == "table":
+            _add_table(doc, block["rows"])
             continue
 
-        # Bullet lines ("- **Foo**: bar") also carry markdown bold, so
-        # they go through the same bold-marker splitter as body text.
-        if line.startswith("# "):
-            heading = doc.add_heading("", level=1)
+        if block["type"] == "heading":
+            level = block["level"]
+            size = {1: 16, 2: 14, 3: 12}[level]
+            heading = doc.add_heading("", level=level)
             heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            _add_text_with_bold_markers(heading, line[2:], "Times New Roman", 16, base_bold=True)
-        elif line.startswith("## "):
-            heading = doc.add_heading("", level=2)
-            heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            _add_text_with_bold_markers(heading, line[3:], "Times New Roman", 14, base_bold=True)
-        elif line.startswith("### "):
-            heading = doc.add_heading("", level=3)
-            heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            _add_text_with_bold_markers(heading, line[4:], "Times New Roman", 12, base_bold=True)
+            _add_text_with_bold_markers(heading, block["text"], "Times New Roman", size, base_bold=True)
         else:
             para = doc.add_paragraph()
             para.style = doc.styles["Normal"]
             para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            _add_text_with_bold_markers(para, line, "Times New Roman", 11, base_bold=False)
+            _add_text_with_bold_markers(para, block["text"], "Times New Roman", 11, base_bold=False)
 
 
 def build_docx(topic: str, body_text: str, output_path: str) -> str:
