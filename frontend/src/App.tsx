@@ -30,40 +30,41 @@ export default function App() {
     fetchDashboardData();
   }, []);
 
-  const fetchDashboardData = () => {
-    fetch('/api/dashboard-data')
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error('Not logged in or error');
+  const fetchDashboardData = async () => {
+    try {
+      const res = await fetch('/api/dashboard-data');
+      if (res.status === 401) {
+        // Not logged in or session expired
+        return;
+      }
+      if (!res.ok) {
+        throw new Error('Server error');
+      }
+      const data: DashboardData = await res.json();
+      setUsername(data.username);
+      setReports(data.reports || []);
+    } catch (err) {
+      console.warn('Backend connection unavailable, using demo mode:', err);
+      // Mock data for development
+      setUsername('Het Parekh');
+      setReports([
+        {
+          topic: 'Creative Branding Strategies for 2026',
+          created_at: '2026-07-24 18:30:12',
+          report_name: 'branding_strategy.docx',
+          pdf_name: 'branding_strategy.pdf'
+        },
+        {
+          topic: 'UX Design Trends in Augmented Reality',
+          created_at: '2026-07-24 16:15:45',
+          report_name: 'ux_ar_trends.docx',
+          pdf_name: null
         }
-        return res.json();
-      })
-      .then((data: DashboardData) => {
-        setUsername(data.username);
-        setReports(data.reports);
-      })
-      .catch((err) => {
-        console.warn('Backend connection unavailable, using demo mode:', err);
-        // Mock data for development
-        setUsername('Het Parekh');
-        setReports([
-          {
-            topic: 'Creative Branding Strategies for 2026',
-            created_at: '2026-07-24 18:30:12',
-            report_name: 'branding_strategy.docx',
-            pdf_name: 'branding_strategy.pdf'
-          },
-          {
-            topic: 'UX Design Trends in Augmented Reality',
-            created_at: '2026-07-24 16:15:45',
-            report_name: 'ux_ar_trends.docx',
-            pdf_name: null
-          }
-        ]);
-      });
+      ]);
+    }
   };
 
-  const handleGenerate = (e: React.FormEvent) => {
+  const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!topic.trim()) {
       setErrorMessage('Please enter a topic first.');
@@ -74,35 +75,50 @@ export default function App() {
     setSuccessMessage('');
     setIsGenerating(true);
 
-    fetch('/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        topic: topic.trim(),
-        num_pages: numPages,
-        want_pdf: wantPdf,
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((data) => {
-            throw new Error(data.error || 'Failed to generate report.');
-          });
-        }
-        return res.json();
-      })
-      .then((data) => {
-        setSuccessMessage(`Success! Generated: ${data.docx_filename}`);
-        setTopic('');
-        setIsGenerating(false);
-        fetchDashboardData(); // Reload history
-      })
-      .catch((err) => {
-        setErrorMessage(err.message || 'An error occurred.');
-        setIsGenerating(false);
+    try {
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic: topic.trim(),
+          num_pages: numPages,
+          want_pdf: wantPdf,
+        }),
       });
+
+      if (res.status === 401) {
+        window.location.href = '/login';
+        throw new Error('Session expired. Redirecting to login...');
+      }
+
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        if (res.status === 504 || res.status === 502) {
+          throw new Error('The server request timed out. Please try generating a shorter report (e.g. 5–10 pages) or try again shortly.');
+        }
+        if (res.status === 503) {
+          throw new Error('The server is temporarily busy. Please wait a few seconds and try again.');
+        }
+        throw new Error(`Server error (${res.status}). Please try again.`);
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to generate report.');
+      }
+
+      setSuccessMessage(`Success! Generated: ${data.docx_filename}`);
+      setTopic('');
+      setIsGenerating(false);
+      fetchDashboardData(); // Reload history
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An error occurred.');
+      setIsGenerating(false);
+    }
   };
 
   // Stagger animation delays helper

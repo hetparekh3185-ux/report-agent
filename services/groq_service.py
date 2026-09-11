@@ -1,10 +1,16 @@
 import os
 import re
+import time
+import logging
 from groq import Groq
 
+_logger = logging.getLogger(__name__)
 _client = None
 
-MODEL = "openai/gpt-oss-120b"
+# Primary model with fallback chain to prevent rate limit (429) failures
+MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]
+MODEL = MODELS[0]
+
 WORDS_PER_PAGE = 350
 WORDS_PER_SECTION_TARGET = 700  # roughly 2 pages of content per section call
 
@@ -35,18 +41,39 @@ def get_groq_client() -> Groq:
     return _client
 
 
-def _chat(messages, max_tokens=1500, temperature=0.7):
+def _chat(messages, max_tokens=850, temperature=0.7):
     client = get_groq_client()
-    try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as exc:
-        raise GroqRequestError(f"Error fetching content from Groq: {exc}") from exc
+    last_error = None
+
+    for current_model in MODELS:
+        for attempt in range(2):
+            try:
+                response = client.chat.completions.create(
+                    model=current_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                content = (response.choices[0].message.content or "").strip()
+                if content:
+                    return content
+                # If model returned empty (e.g. reasoning model exhausted tokens), retry
+                _logger.warning("Model %s returned empty response, retrying...", current_model)
+            except Exception as exc:
+                last_error = exc
+                err_str = str(exc)
+                if "429" in err_str or "rate_limit" in err_str.lower():
+                    # Parse retry delay if provided
+                    match = re.search(r"try again in ([\d\.]+)s", err_str)
+                    wait_time = float(match.group(1)) if match else (2.0 * (attempt + 1))
+                    wait_time = min(wait_time, 4.0)
+                    _logger.info("Rate limit hit on %s. Waiting %.1fs...", current_model, wait_time)
+                    time.sleep(wait_time)
+                else:
+                    _logger.warning("Error with model %s (attempt %d): %s", current_model, attempt + 1, exc)
+                    time.sleep(0.5)
+
+    raise GroqRequestError(f"Error fetching content from Groq after fallback attempts: {last_error}")
 
 
 def _generate_outline(topic: str, num_sections: int) -> list[str]:
@@ -68,7 +95,7 @@ def _generate_outline(topic: str, num_sections: int) -> list[str]:
             {"role": "system", "content": "You are an expert report planner. Follow the requested format exactly."},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=400,
+        max_tokens=500,
         temperature=0.5,
     )
 
@@ -84,13 +111,13 @@ def _generate_outline(topic: str, num_sections: int) -> list[str]:
             titles.append(cleaned)
 
     if not titles:
-        # fallback if parsing fails — generic sections
         titles = [f"Section {i+1}" for i in range(num_sections)]
 
     return titles[:num_sections]
 
 
 def _generate_intro(topic: str, target_words: int) -> str:
+    tokens = min(850, int(target_words * 1.6) + 150)
     prompt = f"""
     Write ONLY the introduction section for a professional report on: "{topic}"
     Target length: approximately {target_words} words.
@@ -102,11 +129,12 @@ def _generate_intro(topic: str, target_words: int) -> str:
             {"role": "system", "content": "You are a professional report writer."},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=1200,
+        max_tokens=tokens,
     )
 
 
 def _generate_section(topic: str, section_title: str, target_words: int) -> str:
+    tokens = min(950, int(target_words * 1.6) + 150)
     prompt = f"""
     Write ONLY the section titled "{section_title}" for a professional report on: "{topic}"
 
@@ -123,11 +151,12 @@ def _generate_section(topic: str, section_title: str, target_words: int) -> str:
             {"role": "system", "content": "You are a professional report writer."},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=1800,
+        max_tokens=tokens,
     )
 
 
 def _generate_conclusion(topic: str, target_words: int) -> str:
+    tokens = min(750, int(target_words * 1.6) + 150)
     prompt = f"""
     Write ONLY the conclusion section for a professional report on: "{topic}"
     Target length: approximately {target_words} words.
@@ -139,7 +168,7 @@ def _generate_conclusion(topic: str, target_words: int) -> str:
             {"role": "system", "content": "You are a professional report writer."},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=800,
+        max_tokens=tokens,
     )
 
 
@@ -148,8 +177,6 @@ def fetch_content(topic: str, num_pages: int) -> str:
     Generates a report in chunks (outline -> intro -> sections -> conclusion)
     and stitches them together, so long reports don't hit token limits or
     trigger the model to refuse/summarize instead of writing in full.
-
-    Same signature as before — safe drop-in replacement.
     """
     target_words = num_pages * WORDS_PER_PAGE
 
@@ -158,14 +185,20 @@ def fetch_content(topic: str, num_pages: int) -> str:
     conclusion_words = max(150, int(target_words * 0.15))
     body_words = max(300, target_words - intro_words - conclusion_words)
 
-    num_sections = max(2, min(10, round(body_words / WORDS_PER_SECTION_TARGET)))
+    # Cap at 7 sections to avoid excessive sequential calls while still delivering rich length
+    num_sections = max(2, min(7, round(body_words / WORDS_PER_SECTION_TARGET)))
     words_per_section = body_words // num_sections
 
     section_titles = _generate_outline(topic, num_sections)
+    time.sleep(0.3)
 
     parts = [_generate_intro(topic, intro_words)]
+
     for title in section_titles:
+        time.sleep(0.3)
         parts.append(_generate_section(topic, title, words_per_section))
+
+    time.sleep(0.3)
     parts.append(_generate_conclusion(topic, conclusion_words))
 
     return "\n\n".join(parts)

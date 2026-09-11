@@ -20,12 +20,14 @@ _db_checked = False
 
 
 def login_required(view):
-    """Decorator: redirect to /login if there's no active session."""
+    """Decorator: redirect to /login if there's no active session, or return JSON 401 for API calls."""
     from functools import wraps
 
     @wraps(view)
     def wrapped(*args, **kwargs):
         if "user_id" not in session:
+            if request.is_json or request.path.startswith("/api/") or request.path == "/generate":
+                return jsonify({"error": "Session expired. Please log in again.", "redirect": "/login"}), 401
             return redirect(url_for("login"))
         return view(*args, **kwargs)
 
@@ -156,7 +158,8 @@ def generate():
     try:
         report_text = report_generator.generate_report_text(topic, num_pages)
     except Exception as exc:  # GroqConfigError / GroqRequestError / network errors etc.
-        return jsonify({"error": str(exc)}), 502
+        app.logger.exception("Report text generation failed")
+        return jsonify({"error": str(exc)}), 500
 
     report_id = str(uuid.uuid4())[:8]
     safe_topic = slugify(topic)
@@ -172,10 +175,8 @@ def generate():
             pdf_path = os.path.join(GENERATED_REPORTS_DIR, pdf_filename)
             pdf_generator.build_pdf(topic=topic, body_text=report_text, output_path=pdf_path)
     except Exception as exc:
-        # Content generation succeeded but document assembly failed —
-        # surface this as JSON, not Flask's HTML debug page, so the
-        # frontend's fetch().json() doesn't choke on "<html>...".
-        return jsonify({"error": f"Failed to build document: {exc}"}), 502
+        app.logger.exception("Document assembly failed")
+        return jsonify({"error": f"Failed to build document: {exc}"}), 500
 
     try:
         db.save_report_files(
@@ -185,11 +186,8 @@ def generate():
             pdf={"report_name": pdf_filename, "file_path": pdf_path} if want_pdf else None,
         )
     except Exception as exc:
-        # Files were built successfully but the DB write failed (e.g. a
-        # SQLite "database is locked" error from a concurrent request) —
-        # report this as JSON instead of letting it crash into Flask's
-        # HTML debug page.
-        return jsonify({"error": f"Report generated but failed to save to history: {exc}"}), 502
+        app.logger.exception("DB save failed")
+        return jsonify({"error": f"Report generated but failed to save to history: {exc}"}), 500
 
     return jsonify(
         {
